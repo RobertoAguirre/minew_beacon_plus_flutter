@@ -1,13 +1,12 @@
 package com.example.minew_beacon_plus_flutter;
 
 import android.util.Log;
-
 import androidx.annotation.NonNull;
-
 import com.minew.beaconplus.sdk.MTCentralManager;
 import com.minew.beaconplus.sdk.MTFrameHandler;
 import com.minew.beaconplus.sdk.MTPeripheral;
 import com.minew.beaconplus.sdk.frames.MinewFrame;
+import com.minew.beaconplus.sdk.frames.TemperatureFrame;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,15 +21,10 @@ import io.flutter.plugin.common.MethodChannel.Result;
 
 /** MinewBeaconPlusFlutterPlugin */
 public class MinewBeaconPlusFlutterPlugin implements FlutterPlugin, MethodCallHandler {
-  /// The MethodChannel that will the communication between Flutter and native Android
-  ///
-  /// This local reference serves to register the plugin with the Flutter Engine and unregister it
-  /// when the Flutter Engine is detached from the Activity
   private MethodChannel channel;
   private EventChannel scanDevicesEventChannel;
   private MTCentralManager mtCentralManager;
-  private final ArrayList<MTPeripheral> beaconMtPeriphericals  = new ArrayList<>();
-
+  private final ArrayList<MTPeripheral> beaconMtPeriphericals = new ArrayList<>();
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
@@ -48,7 +42,6 @@ public class MinewBeaconPlusFlutterPlugin implements FlutterPlugin, MethodCallHa
     scanDevicesEventChannel.setStreamHandler(scanDevicesEventChannelHandler);
   }
 
-
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
     if (call.method.equals("getPlatformVersion")) {
@@ -65,11 +58,6 @@ public class MinewBeaconPlusFlutterPlugin implements FlutterPlugin, MethodCallHa
     }
   }
 
-  /***
-   * startScan
-   * @param call
-   * @param result
-   */
   private void startScan(@NonNull MethodCall call, @NonNull Result result){
     try {
       mtCentralManager.startScan();
@@ -79,11 +67,6 @@ public class MinewBeaconPlusFlutterPlugin implements FlutterPlugin, MethodCallHa
     }
   }
 
-  /***
-   * stopScan
-   * @param call
-   * @param result
-   */
   private void stopScan(@NonNull MethodCall call, @NonNull Result result){
     try {
       mtCentralManager.stopScan();
@@ -93,76 +76,76 @@ public class MinewBeaconPlusFlutterPlugin implements FlutterPlugin, MethodCallHa
     }
   }
 
-  /***
-   * scanDevicesEventChannelHandler
-   */
-  private EventChannel.StreamHandler scanDevicesEventChannelHandler = new EventChannel.StreamHandler (){
+  private EventChannel.StreamHandler scanDevicesEventChannelHandler = new EventChannel.StreamHandler() {
     private EventChannel.EventSink eventSink = null;
-    private final ArrayList<Map<String,Object>> peripheralsList  = new ArrayList<>();
+    private final ArrayList<Map<String,Object>> peripheralsList = new ArrayList<>();
 
     @Override
     public void onListen(Object arguments, EventChannel.EventSink sink) {
       this.eventSink = sink;
 
       try {
+        mtCentralManager.setMTCentralManagerListener(peripherals -> {
+          // Update beaconMtPeriphericals
+          beaconMtPeriphericals.clear();
+          beaconMtPeriphericals.addAll(peripherals);
 
-        mtCentralManager.setMTCentralManagerListener(
-                peripherals -> {
+          // Create peripheralsList
+          peripheralsList.clear();
 
-                  // Update beaconMtPeriphericals
-                  beaconMtPeriphericals.clear();
-                  beaconMtPeriphericals.addAll(peripherals);
+          for (MTPeripheral mtPeripheral: peripherals) {
+            // get FrameHandler of a device.
+            final MTFrameHandler mtFrameHandler = mtPeripheral.mMTFrameHandler;
+            final String mac = mtFrameHandler.getMac();
+            final String name = mtFrameHandler.getName();
+            final int battery = mtFrameHandler.getBattery();
+            final int rssi = mtFrameHandler.getRssi();
+            final ArrayList<MinewFrame> advFrames = mtFrameHandler.getAdvFrames();
 
-                  // Create peripheralsList
-                  peripheralsList.clear();
+            // Create frameItems object
+            final ArrayList<HashMap<String, Object>> frameItems = new ArrayList<>();
+            String temperature = "N/A";
 
-                  for (MTPeripheral mtPeripheral:  peripherals) {
-                    // get FrameHandler of a device.
-                    final MTFrameHandler mtFrameHandler = mtPeripheral.mMTFrameHandler;
-                    final String mac = mtFrameHandler.getMac(); //mac address of device
-                    final String name = mtFrameHandler.getName(); // name of device
-                    final int battery = mtFrameHandler.getBattery(); //battery
-                    final int rssi = mtFrameHandler.getRssi(); //rssi
-                    final ArrayList<MinewFrame> advFrames = mtFrameHandler.getAdvFrames();
+            for (MinewFrame frame : advFrames) {
+              HashMap<String, Object> frameItem = new HashMap<>();
+              frameItem.put("type", frame.getFrameType().toString());
+              frameItem.put("slot", frame.getCurSlot());
 
-                    // Create frameItems object
-                    final ArrayList<HashMap<String, Object>> frameItems = new ArrayList<>();
+              if (frame instanceof TemperatureFrame) {
+                TemperatureFrame tempFrame = (TemperatureFrame) frame;
+                double tempValue = tempFrame.getValue();
+                frameItem.put("temperature", tempValue);
+                temperature = String.valueOf(tempValue);
+                Log.d("MinewBeaconPlugin", "Temperature found: " + tempValue);
+              }
 
-                    for (MinewFrame frame : advFrames){
-                      HashMap<String, Object> frameItem = new HashMap<>();
-                      frameItem.put("type", frame.getFrameType().toString());
-                      frameItem.put("slot", frame.getCurSlot());
-                      frameItems.add(frameItem);
-                    }
+              frameItems.add(frameItem);
+            }
 
-                    // Create Device Info object
-                    final Map<String, Object> device = new HashMap<>();
-                    device.put("name", name);
-                    device.put("mac", mac);
-                    device.put("battery", String.valueOf(battery));
-                    device.put("rssi",String.valueOf(rssi));
-                    device.put("advFrames", frameItems);
+            // Create Device Info object
+            final Map<String, Object> device = new HashMap<>();
+            device.put("name", name);
+            device.put("mac", mac);
+            device.put("battery", battery);
+            device.put("rssi", rssi);
+            device.put("advFrames", frameItems);
+            device.put("temperature", temperature);
 
-                    peripheralsList.add(device);
+            peripheralsList.add(device);
+          }
 
-                  }
-
-                  if(eventSink!= null){
-                    eventSink.success(peripheralsList);
-                  }
-
-                }
-        );
-      }catch (Exception e){
+          if(eventSink != null){
+            eventSink.success(peripheralsList);
+          }
+        });
+      } catch (Exception e) {
         Log.println(Log.ERROR, null, e.getMessage());
         mtCentralManager.stopScan();
       }
-
     }
 
     @Override
     public void onCancel(Object arguments) {
-
     }
   };
 
